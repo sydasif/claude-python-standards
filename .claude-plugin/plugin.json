@@ -1,7 +1,7 @@
 {
   "name": "python-standards",
   "displayName": "Python Standards",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Python coding standards for Claude Code: house rules plus cleanup, modernization, refactor, review, and codebase-tidiness skills and agents.",
   "author": {
     "name": "Syed Asif"
