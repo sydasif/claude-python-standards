@@ -73,7 +73,6 @@ IMPURE = {
     "random.randint",
     "uuid.uuid4",
     "os.getenv",
-    "os.environ.get",
 }
 ENTRY_POINT_NAMES = {"main", "cli", "entrypoint"}
 BRANCHES = (ast.If, ast.For, ast.While, ast.Match, ast.IfExp, ast.BoolOp)

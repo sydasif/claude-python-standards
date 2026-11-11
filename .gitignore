@@ -14,3 +14,6 @@ evals/results/
 # OS
 .DS_Store
 Thumbs.db
+
+# Local agent settings (machine-specific)
+.claude/settings.local.json

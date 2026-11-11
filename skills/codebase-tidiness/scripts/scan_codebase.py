@@ -11,9 +11,8 @@ Outputs a JSON object with keys:
     ruff_d:               docstring style issues from Ruff (D)
     ruff_fix:             TODO/FIXME/HACK markers from Ruff (FIX)
     docsig_findings:      signature-param mismatches from docsig (if installed)
-    docvet_findings:      stale docstrings from docvet freshness (if installed)
+If a tool is missing or fails, its key will be an error dict with {"error": true}.
 
-If a tool is not installed, its key will be an error dict with {"error": true}.
 """
 
 import argparse
@@ -39,17 +38,21 @@ DOCVET_LINE = re.compile(
 )
 
 
-def _run_cmd(cmd: list[str], tool: str, timeout: int = 120) -> tuple[str, str]:
-    """Run a command, return (stdout, stderr). Raises on timeout."""
+def _run_cmd(cmd: list[str], tool: str, timeout: int = 120) -> tuple[str, str, int | None]:
+    """Run a command, return (stdout, stderr, returncode).
+
+    ``returncode`` is ``None`` when the binary was not found, and a
+    negative sentinel for timeouts/other OSErrors.
+    """
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        return result.stdout, result.stderr
+        return result.stdout, result.stderr, result.returncode
     except subprocess.TimeoutExpired:
-        return "", f"{tool} timed out after {timeout}s"
+        return "", f"{tool} timed out after {timeout}s", -1
     except FileNotFoundError:
-        return "", f"{tool} not found"
+        return "", f"{tool} not found", None
     except OSError as e:
-        return "", str(e)
+        return "", str(e), -1
 
 
 def _not_installed(tool: str) -> list[dict]:
@@ -64,9 +67,13 @@ def _scan_tool(tool: str, argv: list[str], parse: Callable[[str], list[dict]]) -
     """
     if not shutil.which(tool):
         return _not_installed(tool)
-    stdout, stderr = _run_cmd(argv, tool)
-    if stderr and not stdout:
+    stdout, stderr, rc = _run_cmd(argv, tool)
+    if rc is None:
+        # Binary missing — same treatment as not installed
         return _not_installed(tool)
+    if rc != 0 and not stdout:
+        # Tool ran but failed with no output → report the error detail
+        return [{"error": True, "tool": tool, "detail": stderr.strip()}]
     return parse(stdout)
 
 
@@ -172,14 +179,17 @@ def run_docsig(target: str) -> list[dict]:
 
 
 def run_docvet(target: str) -> list[dict]:
-    """Run docvet freshness check over the whole git project.
+    """Run docvet freshness check on Python files under the target directory.
 
     Freshness is its own subcommand (``docvet freshness``) and it rejects
-    directories, so scope comes from ``--all`` rather than ``target``.
+    directories, so scope is passed as individual ``.py`` file paths.
     """
-    return _scan_tool("docvet", ["docvet", "freshness", "--all"], parse_docvet)
-
-
+    if not shutil.which("docvet"):
+        return _not_installed("docvet")
+    files = sorted(str(p) for p in Path(target).rglob("*.py"))
+    if not files:
+        return []
+    return _scan_tool("docvet", ["docvet", "freshness", *files], parse_docvet)
 def main():
     parser = argparse.ArgumentParser(
         description="Scan Python codebase for dead code, stale docs, zombie code."
@@ -189,7 +199,7 @@ def main():
         "--depth",
         choices=["quick", "deep"],
         default="quick",
-        help="quick (default): dead code, signatures, TODOs. deep: add missing-docstring checks, docvet, coverage.",
+        help="quick (default): dead code, signatures, TODOs. deep: add missing-docstring checks, docvet.",
     )
     parser.add_argument(
         "--vulture-min-confidence",
@@ -222,11 +232,11 @@ def main():
     if args.all or not args.skip_ruff_era:
         report["ruff_era"] = run_ruff(target, "ERA")
     if args.all or not args.skip_ruff_fix:
-        report["ruff_fixme"] = run_ruff(target, "FIX")
+        report["ruff_fix"] = run_ruff(target, "FIX")
     if args.all or not args.skip_docsig:
         report["docsig_findings"] = run_docsig(target)
 
-    # Deep-depth: docstring presence, stale docs, coverage
+    # Deep-depth: docstring presence, stale docs
     if is_deep and not args.skip_ruff_d:
         report["ruff_d"] = run_ruff(target, "D")
     if is_deep and not args.skip_docvet:

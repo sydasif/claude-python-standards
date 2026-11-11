@@ -40,6 +40,7 @@ def stub_tool(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]
         stderr: str = "",
         installed: bool = True,
         exc: Exception | None = None,
+        rc: int = 0,
     ) -> list[list[str]]:
         calls: list[list[str]] = []
         monkeypatch.setattr(
@@ -50,7 +51,7 @@ def stub_tool(monkeypatch: pytest.MonkeyPatch) -> Callable[..., list[list[str]]]
             calls.append(cmd)
             if exc is not None:
                 raise exc
-            return subprocess.CompletedProcess(cmd, 0, stdout, stderr)
+            return subprocess.CompletedProcess(cmd, rc, stdout, stderr)
 
         monkeypatch.setattr(scan_codebase.subprocess, "run", fake_run)
         return calls
@@ -178,12 +179,15 @@ def test_docsig_tags_signature_mismatch(stub_tool: Callable[..., list[list[str]]
     ]
 
 
-def test_docvet_splits_rule_and_severity(stub_tool: Callable[..., list[list[str]]]) -> None:
-    # Arrange
+def test_docvet_splits_rule_and_severity(
+    stub_tool: Callable[..., list[list[str]]], tmp_path
+) -> None:
+    # Arrange - run_docvet now scopes to target .py files
+    (tmp_path / "demo.py").write_text("")
     stub_tool(stdout=DOCVET_OUTPUT)
 
     # Act
-    findings = scan_codebase.run_docvet("/src")
+    findings = scan_codebase.run_docvet(str(tmp_path))
 
     # Assert
     assert findings == [
@@ -213,56 +217,66 @@ def test_unparseable_output_yields_no_findings(
 @pytest.mark.parametrize(
     ("runner", "tool"),
     [
-        (lambda: scan_codebase.run_vulture("/src"), "vulture"),
-        (lambda: scan_codebase.run_ruff("/src", "F401"), "ruff"),
-        (lambda: scan_codebase.run_docsig("/src"), "docsig"),
-        (lambda: scan_codebase.run_docvet("/src"), "docvet"),
+        (lambda t: scan_codebase.run_vulture(t), "vulture"),
+        (lambda t: scan_codebase.run_ruff(t, "F401"), "ruff"),
+        (lambda t: scan_codebase.run_docsig(t), "docsig"),
+        (lambda t: scan_codebase.run_docvet(t), "docvet"),
     ],
 )
 def test_missing_tool_reports_not_installed(
-    stub_tool: Callable[..., list[list[str]]], runner: Callable[[], list[dict]], tool: str
+    stub_tool: Callable[..., list[list[str]]],
+    runner: Callable[[str], list[dict]],
+    tool: str,
+    tmp_path,
 ) -> None:
     # Arrange
     stub_tool(installed=False)
 
     # Act
-    findings = runner()
+    findings = runner(str(tmp_path))
 
     # Assert
     assert findings == [{"error": True, "tool": tool, "detail": f"{tool} not installed"}]
 
 
 @pytest.mark.parametrize(
-    "runner",
+    ("runner", "tool"),
     [
-        lambda: scan_codebase.run_vulture("/src"),
-        lambda: scan_codebase.run_ruff("/src", "F401"),
-        lambda: scan_codebase.run_docsig("/src"),
-        lambda: scan_codebase.run_docvet("/src"),
+        (lambda t: scan_codebase.run_vulture(t), "vulture"),
+        (lambda t: scan_codebase.run_ruff(t, "F401"), "ruff"),
+        (lambda t: scan_codebase.run_docsig(t), "docsig"),
+        (lambda t: scan_codebase.run_docvet(t), "docvet"),
     ],
 )
-def test_stderr_only_is_reported_as_not_installed(
-    stub_tool: Callable[..., list[list[str]]], runner: Callable[[], list[dict]]
+def test_tool_failure_reports_stderr_detail(
+    stub_tool: Callable[..., list[list[str]]],
+    runner: Callable[[str], list[dict]],
+    tool: str,
+    tmp_path,
 ) -> None:
-    # Arrange
-    stub_tool(stderr="config error")
+    # Arrange - non-zero exit with empty stdout is a real tool failure,
+    # not "not installed"; detail carries the stderr text
+    (tmp_path / "a.py").write_text("x = 1\n")
+    stub_tool(rc=1, stderr="config error")
 
     # Act
-    findings = runner()
+    findings = runner(str(tmp_path))
 
     # Assert
-    assert findings[0]["error"] is True
+    assert findings == [{"error": True, "tool": tool, "detail": "config error"}]
 
 
-def test_stderr_with_stdout_still_parses(stub_tool: Callable[..., list[list[str]]]) -> None:
-    # Arrange
-    stub_tool(stdout=RUFF_OUTPUT, stderr="warning: deprecated flag")
+def test_timeout_reports_detail(
+    stub_tool: Callable[..., list[list[str]]],
+) -> None:
+    # Arrange - a timeout must not be confused with "not installed"
+    stub_tool(exc=subprocess.TimeoutExpired(cmd="ruff", timeout=120))
 
     # Act
     findings = scan_codebase.run_ruff("/src", "F401")
 
     # Assert
-    assert len(findings) == 2
+    assert findings == [{"error": True, "tool": "ruff", "detail": "ruff timed out after 120s"}]
 
 
 def test_missing_binary_is_reported_as_not_installed(

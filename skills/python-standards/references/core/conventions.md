@@ -88,19 +88,17 @@ version = "0.1.0"
 requires-python = ">=3.11"   # floor; target 3.12 for new projects (see version.md)
 
 [tool.ruff]
-target-version = "py312"     # matches the 3.12 target policy
+target-version = "py311"     # matches the 3.11 floor; raise requires-python to >=3.12 to opt into 3.12-only syntax
 line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM", "RET", "ASYNC", "RUF"]
 ignore = ["E501"]  # line length — ruff format handles it
 
-[tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # asserts are fine in tests
 
 [tool.mypy]
 strict = true
-python_version = "3.12"
+python_version = "3.11"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

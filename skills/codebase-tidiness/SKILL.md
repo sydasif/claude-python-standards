@@ -9,7 +9,7 @@ description: >
   comments", "review docstrings freshness", or mentions "code quality
   pass" or "spring cleaning", invoke this skill — don't assume they just
   mean formatting.
-allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/scan_codebase.py *)
+allowed-tools: Bash(python3 ${CLAUDE_SKILL_DIR}/scripts/scan_codebase.py *), Bash(git diff *), Bash(git show *), Bash(git status *), Bash(vulture *), Bash(ruff *), Bash(docsig *), Bash(docvet *)
 ---
 
 A codebase accumulates three kinds of invisible debt faster than most teams
@@ -31,8 +31,8 @@ Choose the scan scope upfront:
 - **`quick` (default)** — Focused on the most actionable categories: dead code,
   stale fix-narratives, lying comments, zombie code, contextless TODOs.
   Tier 1 runs Vulture + Ruff F401/F841/ERA/FIX + docsig.
-- **`deep`** — Full audit. Adds Ruff D (missing docstrings), docvet freshness
-  (stale docs), and Coverage.py (untested code). Use when the user asks for a
+- **`deep`** — Full audit. Adds Ruff D (missing docstrings) and docvet freshness
+  (stale docs, scoped to target files). Use when the user asks for a
   comprehensive sweep or before a major release.
 
 Ask the user which depth they want if they don't specify. Default to `quick`
@@ -73,17 +73,14 @@ that is missing as `{"error": true}` instead of failing the whole scan.
 | TODO/FIXME/HACK markers                       | **Ruff** (`ruff check --select FIX <dir>`)                       | quick | Collects all fixme markers for Tier 2 evaluation                 |
 | Signature/docstring parameter mismatch        | **docsig** (`docsig --check-class --check-protected <dir>`)      | quick | Ensures `Args:` sections match actual function signatures        |
 | Missing docstrings by style                   | **Ruff** (`ruff check --select D <dir>`)                         | deep  | Catches missing docs; does _not_ catch semantic staleness        |
-| Stale docstrings (fast, changed files only)   | **docvet diff mode** (`docvet freshness --staged`)               | deep  | Detects code changes without docstring updates; runs on git diff |
-| Stale docstrings (full blame sweep)           | **docvet drift mode** (`docvet freshness --all --mode drift`)    | deep  | Uses git blame to find docstrings that fell behind gradually     |
-| Code unreachable by test coverage             | **Coverage.py** (if test suite is available)                     | deep  | Low-confidence but useful signal                                 |
+| Stale docstrings (target files)     | **docvet freshness** (`docvet freshness <files>`)              | deep  | Code changed without docstring updates; scoped to scanned target |
 
 **Key insight about docstring staleness tools:**
 
 | Tool             | What it catches                                         | What it misses                                               |
 | ---------------- | ------------------------------------------------------- | ------------------------------------------------------------ |
 | **docsig**       | Parameter name/type drift, extra/missing params         | Changed logic/behavior without signature change              |
-| **docvet diff**  | Docstrings not updated alongside code in recent commits | Docstrings that were already stale before the diff           |
-| **docvet drift** | Gradual docstring rot across the full git history       | No false positives from squash merges or reformats           |
+| **docvet freshness** | Stale docstrings on scanned target files | Requires git history and Python ≥3.12 |
 | **Ruff D**       | Missing docstrings entirely                             | Content correctness — it only checks _presence_ and _format_ |
 
 These tools are **complementary**. docvet catches behavioral staleness (code
@@ -93,7 +90,7 @@ drifted from docs). Use both.
 **Script flags:**
 
 - `--depth quick` (default): Vulture, Ruff F401/F841/ERA/FIX, docsig
-- `--depth deep`: everything above + Ruff D, docvet, coverage.py
+- `--depth deep`: everything above + Ruff D, docvet (target-file scoped)
 - `--skip-*` flags override individual tools within any depth
 - `--all` runs everything regardless of depth (same as `--depth deep`)
 
@@ -244,8 +241,9 @@ If the user asked for **fixing** as well as finding, append a second section:
 
 - **Python codebases only** (Tier 1 tools are Python-specific)
 - **Git repository** required for docvet freshness checks and Tier 2B drift detection
-- **ruff**, **vulture**, **docsig** should be installed (the skill will attempt
-  `uv add --dev <tool>` if missing, but defaults to running only available tools)
+- **ruff**, **vulture**, **docsig** should be installed (missing or failing
+  tools are reported as `{"error": true}`, never fatal; install them yourself
+  with e.g. `uv add --dev <tool>`)
 - **docvet** (optional) — adds git-aware stale docstring detection at two
   depth levels (fast diff mode for CI, slow drift mode for periodic sweeps).
   It requires Python ≥3.12, so skip it on projects whose floor is 3.11. It
