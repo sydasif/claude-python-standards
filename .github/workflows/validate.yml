@@ -22,7 +22,7 @@ jobs:
           exit "$failed"
 
       - name: Python tests for bundled scripts
-        run: python3 -m pytest skills/codebase-tidiness/tests -q
+        run: uvx pytest skills/codebase-tidiness/tests -q
 
       - name: Claude Code plugin manifest
         run: |
