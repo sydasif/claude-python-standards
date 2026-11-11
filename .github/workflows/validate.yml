@@ -8,12 +8,18 @@ jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7.0.1
 
       - uses: astral-sh/setup-uv@v10.3.3
 
       - name: Agent Skills spec (open standard)
-        run: uvx --from skills-ref agentskills validate --recursive skills
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r -d '' skill; do
+            uvx --from skills-ref agentskills validate "$(dirname "$skill")" || failed=1
+          done < <(find skills -type f -name SKILL.md -print0)
+          exit "$failed"
 
       - name: Python tests for bundled scripts
         run: python3 -m pytest skills/codebase-tidiness/tests -q
