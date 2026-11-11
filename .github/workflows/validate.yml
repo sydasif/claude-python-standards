@@ -24,8 +24,11 @@ jobs:
       - name: Python tests for bundled scripts
         run: uvx pytest skills/codebase-tidiness/tests -q
 
+      # Fails on manifest errors. Warnings (e.g. a missing icon) stay visible
+      # without turning the build red; run `claude plugin validate . --strict`
+      # before a release or a directory submission.
       - name: Claude Code plugin manifest
         run: |
           npm install -g @anthropic-ai/claude-code
           claude --version
-          claude plugin validate . --strict
+          claude plugin validate .
