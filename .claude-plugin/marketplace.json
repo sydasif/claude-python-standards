@@ -1,0 +1,14 @@
+{
+  "name": "python-standards-market",
+  "description": "Python coding standards for Claude Code",
+  "owner": {
+    "name": "Syed"
+  },
+  "plugins": [
+    {
+      "name": "python-standards",
+      "source": ".",
+      "description": "House rules plus cleanup, modernization, refactor, review, and codebase-tidiness skills and agents."
+    }
+  ]
+}
